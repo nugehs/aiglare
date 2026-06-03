@@ -1,0 +1,149 @@
+import ts from 'typescript';
+import fs from 'node:fs';
+import path from 'node:path';
+import { findProviderByPackage, findProviderByHost, INFERENCE_CALL_HINTS } from '../providers.js';
+
+const SOURCE_EXT = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs']);
+const IGNORE_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'coverage', '.dev-context', 'out']);
+
+export function walkFiles(root) {
+  const out = [];
+  (function rec(dir) {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.isDirectory()) {
+        if (!IGNORE_DIRS.has(e.name) && !e.name.startsWith('.')) rec(path.join(dir, e.name));
+      } else if (SOURCE_EXT.has(path.extname(e.name))) {
+        out.push(path.join(dir, e.name));
+      }
+    }
+  })(root);
+  return out;
+}
+
+// ---- Guardrail signal detectors (text + AST heuristics over a file) ----
+const RX = {
+  confidence: /\b(confidence|probability|score|threshold|certainty|logprob|topProb)\b/i,
+  fallback: /\b(fallback|uncertain|notSure|not_sure|unknown|low[_-]?confidence|degraded|couldNotDetermine)\b/i,
+  validation: /\b(zod|\.parse\(|\.safeParse\(|JSON\.parse|schema|validateSync|class-validator|ajv|allow[_-]?list|whitelist)\b/i,
+  humanInLoop: /\b(confirm|review|approve|pending|awaitConfirmation|requireApproval|draft|needsReview)\b/i,
+};
+
+const SIDE_EFFECT_HINTS = {
+  payment: /(payment|charge|stripe|paystack|payout|refund|transfer|invoice)/i,
+  booking: /(booking|reserve|reservation|confirmBooking|createBooking)/i,
+  email: /(sendMail|sendEmail|mailer|nodemailer|sendgrid|draftEmail|\bemail\b)/i,
+  db_write: /(prisma\.\w+\.(create|update|delete|upsert)|repository\.(save|insert|update|delete)|\.(save|insert)\(|knex\(|\.query\(['"`]\s*(INSERT|UPDATE|DELETE))/i,
+  fs_write: /(writeFile|writeFileSync|fs\.write)/i,
+  shell: /(execSync|child_process|\bspawn\()/i,
+};
+
+const USER_FACING_HINTS = {
+  controller_route: /@(Get|Post|Put|Patch|Delete)\(|@Controller\(|export\s+(async\s+)?function\s+(GET|POST|PUT|PATCH|DELETE)\b/,
+  http_response: /res\.(json|send)\(|NextResponse\.json\(|\.status\(\d+\)/,
+  jsx_ext: /\.(t|j)sx$/,
+};
+
+export function analyzeFile(filePath) {
+  let text;
+  try { text = fs.readFileSync(filePath, 'utf8'); } catch { return null; }
+
+  const sf = ts.createSourceFile(filePath, text, ts.ScriptTarget.Latest, true);
+  const imports = [];
+  const inferenceCalls = [];
+  const fetchHostHits = [];
+  let hasTryCatch = false;
+
+  const lineOf = (node) => sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+
+  function visit(node) {
+    if (ts.isImportDeclaration(node) && node.moduleSpecifier) {
+      const spec = node.moduleSpecifier.getText(sf);
+      const prov = findProviderByPackage(spec);
+      if (prov) imports.push({ provider: prov, line: lineOf(node) });
+    }
+    if (ts.isCallExpression(node)) {
+      const callText = node.expression.getText(sf);
+      if (INFERENCE_CALL_HINTS.some(h => callText.endsWith(h) || callText.includes(h))) {
+        inferenceCalls.push({ text: callText, line: lineOf(node) });
+      }
+      // raw fetch/axios to a known host
+      for (const arg of node.arguments || []) {
+        if (ts.isStringLiteralLike(arg)) {
+          const prov = findProviderByHost(arg.text);
+          if (prov) fetchHostHits.push({ provider: prov, line: lineOf(node) });
+        }
+      }
+    }
+    if (ts.isTryStatement(node)) hasTryCatch = true;
+    ts.forEachChild(node, visit);
+  }
+  visit(sf);
+
+  // A file is an AI surface if it imports a known provider SDK or calls a known
+  // inference host directly (importedProvider already folds in fetchHostHits).
+  // Inference method-name hints alone (.run()/.generate()/.invoke()) are too
+  // weak to flag without a provider, so they only enrich evidence.
+  const importedProvider = imports[0]?.provider || fetchHostHits[0]?.provider || null;
+  if (!importedProvider) return null;
+
+  // sink classification
+  // Guard against false positives: the AI SDKs' own methods (.create(), .run(),
+  // .generate()) collide with side-effect verbs. Strip the detected inference
+  // call expressions from the text before scanning for side-effects.
+  let sideEffectText = text;
+  for (const c of inferenceCalls) {
+    sideEffectText = sideEffectText.split(c.text).join(' /*inference*/ ');
+  }
+
+  const sideEffects = Object.entries(SIDE_EFFECT_HINTS).filter(([, rx]) => rx.test(sideEffectText)).map(([k]) => k);
+  const userFacing = USER_FACING_HINTS.controller_route.test(text) ||
+                     USER_FACING_HINTS.http_response.test(text) ||
+                     USER_FACING_HINTS.jsx_ext.test(filePath);
+  const sink = sideEffects.length ? 'side-effectful' : userFacing ? 'user-facing' : 'internal';
+
+  // guardrail detection. human-in-loop only counts for side-effects, but we
+  // compute the raw signal unconditionally so the repoctx adapter can re-apply
+  // it if the index later promotes this surface to side-effectful.
+  const humanInLoopSignal = RX.humanInLoop.test(text);
+  const guardrails = {
+    confidence: RX.confidence.test(text),
+    fallback: RX.fallback.test(text),
+    validation: RX.validation.test(text),
+    humanInLoop: sink === 'side-effectful' ? humanInLoopSignal : 'n/a',
+    errorIsolation: hasTryCatch,
+    disclaimer: /\bdisclaimer\b/i.test(text),
+  };
+
+  const severity = scoreSeverity(sink, guardrails);
+
+  return {
+    file: filePath,
+    file_abs: filePath,
+    provider: importedProvider?.id || 'unknown',
+    providerLabel: importedProvider?.label || 'Unknown',
+    sink,
+    sideEffects,
+    guardrails,
+    _humanInLoopSignal: humanInLoopSignal,
+    severity,
+    evidence: [
+      ...imports.map(i => `${path.basename(filePath)}:${i.line} import ${i.provider.label}`),
+      ...inferenceCalls.slice(0, 3).map(c => `${path.basename(filePath)}:${c.line} ${c.text}()`),
+    ],
+  };
+}
+
+export function scoreSeverity(sink, g) {
+  const present = [g.confidence, g.fallback, g.validation, g.errorIsolation, g.disclaimer, g.humanInLoop === true].filter(Boolean).length;
+  if (sink === 'side-effectful') {
+    if (g.humanInLoop !== true) return 'red';          // irreversible action with no confirm = headline risk
+    return present >= 3 ? 'green' : 'amber';
+  }
+  if (sink === 'user-facing') {
+    if (present === 0) return 'red';
+    return present >= 2 ? 'green' : 'amber';
+  }
+  return 'green'; // internal-only
+}

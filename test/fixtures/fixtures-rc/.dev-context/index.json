@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "path": "src/ai/chat.service.ts",
+      "kind": "controller",
+      "domain": "ai",
+      "domains": ["ai"],
+      "httpMethods": ["POST"],
+      "imports": ["openai"],
+      "exports": ["ChatService"],
+      "symbols": [{ "type": "class", "name": "ChatService", "line": 2 }]
+    },
+    {
+      "path": "lib/compliance/legal-disclaimers.tsx",
+      "kind": "source",
+      "domain": "compliance",
+      "domains": ["compliance", "lib"],
+      "httpMethods": [],
+      "imports": ["react"],
+      "exports": ["AIDisclaimer"],
+      "symbols": [{ "type": "const", "name": "AIDisclaimer", "line": 2 }]
+    },
+    {
+      "path": "src/ai/trip-suggest.service.ts",
+      "kind": "service",
+      "domain": "vendor-booking",
+      "domains": ["vendor-booking"],
+      "httpMethods": [],
+      "imports": ["openai"],
+      "exports": ["TripSuggestService"],
+      "symbols": [{ "type": "class", "name": "TripSuggestService", "line": 2 }]
+    }
+  ]
+}
