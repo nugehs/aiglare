@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { analyzeFile } from '../src/discovery/native-scanner.js';
@@ -86,4 +88,39 @@ test('side-effect domain promotion re-evaluates human-in-loop (not falsely RED)'
   // re-applied after promotion, so the surface is amber — not falsely red.
   assert.equal(refined.guardrails.humanInLoop, true);
   assert.notEqual(scoreSeverity(refined.sink, refined.guardrails), 'red');
+});
+
+test('repoctx index nested under map.files is read (real repoctx shape)', () => {
+  // Current repoctx writes the catalog under `map.files`, not a top-level
+  // `files`. Regression: the adapter must read it, otherwise acceleration
+  // silently loads 0 files and degrades to native-only.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aiglare-rc-'));
+  const dir = path.join(root, '.dev-context');
+  fs.mkdirSync(dir, { recursive: true });
+  const idxPath = path.join(dir, 'index.json');
+  fs.writeFileSync(
+    idxPath,
+    JSON.stringify({
+      version: 1,
+      map: {
+        files: [
+          {
+            path: 'src/ai/chat.service.ts',
+            kind: 'source',
+            domain: 'ai',
+            domains: ['ai'],
+            httpMethods: [],
+            imports: ['@nestjs/common', 'openai'],
+            exports: [],
+          },
+        ],
+      },
+    }),
+  );
+
+  const rc = loadRepoctxHints(idxPath, root);
+  assert.equal(rc.fileCount, 1);
+  const abs = path.join(root, 'src/ai/chat.service.ts');
+  assert.ok(rc.candidates.has(abs));
+  assert.equal(rc.hints.get(abs).provider.id, 'openai');
 });

@@ -22,8 +22,11 @@ export function loadRepoctxHints(indexPath, root) {
   let idx;
   try { idx = JSON.parse(fs.readFileSync(indexPath, 'utf8')); } catch { return null; }
 
-  // The index stores files under a `files` array (defensive: also try `entries`).
-  const files = idx.files || idx.entries || [];
+  // The index stores files under a `files` array. Current repoctx nests the
+  // catalog under `map.files`; older/defensive shapes use top-level `files` or
+  // `entries`.
+  const files =
+    idx.files || idx.entries || (idx.map && idx.map.files) || [];
   const hints = new Map();      // absPath -> hint record
   const candidates = new Set(); // absPath of likely AI surfaces
 
