@@ -8,7 +8,7 @@ your repos live there, not in this environment. Here's the sequence.
 ```bash
 cd ~/projects/aiglare    # the repo lives here
 npm install
-npm test                 # expect 10 passing
+npm test                 # expect 16 passing
 ```
 
 ## 2. First real run — backend AI domain

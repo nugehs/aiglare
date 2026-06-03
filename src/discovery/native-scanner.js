@@ -4,7 +4,11 @@ import path from 'node:path';
 import { findProviderByPackage, findProviderByHost, INFERENCE_CALL_HINTS } from '../providers.js';
 
 const SOURCE_EXT = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs']);
-const IGNORE_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'coverage', '.dev-context', 'out']);
+const IGNORE_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'coverage', '.dev-context', 'out', '__tests__', '__mocks__']);
+
+// Test, story, and type-declaration files are not production AI surfaces: a
+// spec that imports a provider and mentions "payment" is not a governance risk.
+const NON_SOURCE_FILE_RX = /\.(spec|test|stories)\.[cm]?[jt]sx?$|\.d\.ts$/i;
 
 export function walkFiles(root) {
   const out = [];
@@ -14,7 +18,7 @@ export function walkFiles(root) {
     for (const e of entries) {
       if (e.isDirectory()) {
         if (!IGNORE_DIRS.has(e.name) && !e.name.startsWith('.')) rec(path.join(dir, e.name));
-      } else if (SOURCE_EXT.has(path.extname(e.name))) {
+      } else if (SOURCE_EXT.has(path.extname(e.name)) && !NON_SOURCE_FILE_RX.test(e.name)) {
         out.push(path.join(dir, e.name));
       }
     }
@@ -30,10 +34,13 @@ const RX = {
   humanInLoop: /\b(confirm|review|approve|pending|awaitConfirmation|requireApproval|draft|needsReview)\b/i,
 };
 
+// Side-effect rules are call/method-shaped so a field or variable named like a
+// side-effect (`email`, `bookingsAsVendor`, `isStripeConnected`) does not trip a
+// sink — only an actual payment/booking/email operation does.
 const SIDE_EFFECT_HINTS = {
-  payment: /(payment|charge|stripe|paystack|payout|refund|transfer|invoice)/i,
-  booking: /(booking|reserve|reservation|confirmBooking|createBooking)/i,
-  email: /(sendMail|sendEmail|mailer|nodemailer|sendgrid|draftEmail|\bemail\b)/i,
+  payment: /\b(stripe|paystack)\.[a-z_$]|\b(createCharge|chargeCard|processPayment|createPaymentIntent|capturePayment|issueRefund|createPayout)\s*\(|\.(charge|refund|payout|capture)\s*\(/i,
+  booking: /\b(createBooking|confirmBooking|cancelBooking|makeBooking|reserve)\s*\(|\bbooking\.(create|update|delete|upsert|cancel|confirm)\b/i,
+  email: /\b(sendMail|sendEmail|draftEmail|mailer|nodemailer|sendgrid|sgMail)\b|\.send(Mail|Email)\s*\(/i,
   db_write: /(prisma\.\w+\.(create|update|delete|upsert)|repository\.(save|insert|update|delete)|\.(save|insert)\(|knex\(|\.query\(['"`]\s*(INSERT|UPDATE|DELETE))/i,
   fs_write: /(writeFile|writeFileSync|fs\.write)/i,
   shell: /(execSync|child_process|\bspawn\()/i,
@@ -45,6 +52,27 @@ const USER_FACING_HINTS = {
   jsx_ext: /\.(t|j)sx$/,
 };
 
+// Blank out the given [start, end) spans (string/template literals) with spaces,
+// preserving newlines and overall length so other offsets stay valid.
+function blankRanges(text, ranges) {
+  if (!ranges.length) return text;
+  const chars = text.split('');
+  for (const [s, e] of ranges) {
+    for (let i = s; i < e && i < chars.length; i++) {
+      if (chars[i] !== '\n') chars[i] = ' ';
+    }
+  }
+  return chars.join('');
+}
+
+// Remove line and block comments. Run AFTER string literals are blanked so a
+// "//" or "/*" inside a string can't be mistaken for a comment.
+function stripComments(text) {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:/])\/\/[^\n]*/g, '$1 ');
+}
+
 export function analyzeFile(filePath) {
   let text;
   try { text = fs.readFileSync(filePath, 'utf8'); } catch { return null; }
@@ -53,6 +81,7 @@ export function analyzeFile(filePath) {
   const imports = [];
   const inferenceCalls = [];
   const fetchHostHits = [];
+  const literalRanges = []; // string/template-literal spans, masked before side-effect scan
   let hasTryCatch = false;
 
   const lineOf = (node) => sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
@@ -62,6 +91,11 @@ export function analyzeFile(filePath) {
       const spec = node.moduleSpecifier.getText(sf);
       const prov = findProviderByPackage(spec);
       if (prov) imports.push({ provider: prov, line: lineOf(node) });
+    }
+    // Record string/template literal spans so prose inside prompts/messages
+    // cannot drive side-effect classification.
+    if (ts.isStringLiteralLike(node) || ts.isTemplateExpression(node)) {
+      literalRanges.push([node.getStart(sf), node.getEnd()]);
     }
     if (ts.isCallExpression(node)) {
       const callText = node.expression.getText(sf);
@@ -87,12 +121,19 @@ export function analyzeFile(filePath) {
   // weak to flag without a provider, so they only enrich evidence.
   const importedProvider = imports[0]?.provider || fetchHostHits[0]?.provider || null;
   if (!importedProvider) return null;
+  // "imports a provider" is not "uses a model". DI wiring (e.g. a NestJS module
+  // that constructs the client in a factory), config, and re-export files
+  // import the SDK but never call it — they are not AI surfaces. Require an
+  // actual inference call or a fetch to a known inference host.
+  if (inferenceCalls.length === 0 && fetchHostHits.length === 0) return null;
 
-  // sink classification
-  // Guard against false positives: the AI SDKs' own methods (.create(), .run(),
-  // .generate()) collide with side-effect verbs. Strip the detected inference
-  // call expressions from the text before scanning for side-effects.
-  let sideEffectText = text;
+  // sink classification — over CODE only, never prose.
+  // (1) Mask string/template literals: a prompt that says "payment" or "booking"
+  //     is not a payment or booking call.
+  // (2) Strip comments: a keyword in a docstring or log line must not count.
+  // (3) Neutralize the AI SDKs' own methods (.create()/.run()/.generate()) whose
+  //     verbs collide with side-effect hints.
+  let sideEffectText = stripComments(blankRanges(text, literalRanges));
   for (const c of inferenceCalls) {
     sideEffectText = sideEffectText.split(c.text).join(' /*inference*/ ');
   }

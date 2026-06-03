@@ -1,8 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { analyzeFile } from '../src/discovery/native-scanner.js';
+import { analyzeFile, walkFiles } from '../src/discovery/native-scanner.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fx = (p) => path.join(here, 'fixtures', p);
@@ -49,6 +51,46 @@ test('fully-guarded identification scores all guardrails present', () => {
   assert.ok(r.guardrails.confidence && r.guardrails.fallback && r.guardrails.validation && r.guardrails.errorIsolation);
 });
 
+test('side-effect keywords in a prompt/comment do not create a side-effect sink', () => {
+  // payment/charge/refund/booking appear ONLY in a comment and a prompt string;
+  // the file takes no such action, so it must not be classified side-effectful.
+  const r = run('good/prompt-only-payment.service.ts');
+  assert.notEqual(r.sink, 'side-effectful');
+  assert.deepEqual(r.sideEffects, []);
+  assert.notEqual(r.severity, 'red');
+});
+
+test('importing a provider without calling the model is not a surface', () => {
+  // DI wiring: imports OpenAI, constructs it in a factory, never invokes it.
+  assert.equal(run('good/ai-wiring.module.ts'), null);
+});
+
+test('side-effect-named fields/identifiers do not create a side-effect sink', () => {
+  // isStripeConnected / bookingsAsVendor / email are read as data, not actions.
+  const r = run('good/reads-payment-fields.service.ts');
+  assert.deepEqual(r.sideEffects, []);
+  assert.notEqual(r.sink, 'side-effectful');
+  assert.notEqual(r.severity, 'red');
+});
+
+test('walkFiles excludes spec/test/stories/d.ts files', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aiglare-walk-'));
+  for (const name of [
+    'service.ts',
+    'service.spec.ts',
+    'service.test.tsx',
+    'button.stories.tsx',
+    'types.d.ts',
+  ]) {
+    fs.writeFileSync(path.join(root, name), 'export const x = 1;');
+  }
+  fs.mkdirSync(path.join(root, '__tests__'));
+  fs.writeFileSync(path.join(root, '__tests__', 'extra.ts'), 'export const y = 1;');
+
+  const found = walkFiles(root).map((p) => path.basename(p));
+  assert.deepEqual(found.sort(), ['service.ts']);
+});
+
 import { loadRepoctxHints, refineWithHints } from '../src/discovery/repoctx-adapter.js';
 import { scoreSeverity } from '../src/discovery/native-scanner.js';
 
@@ -86,4 +128,39 @@ test('side-effect domain promotion re-evaluates human-in-loop (not falsely RED)'
   // re-applied after promotion, so the surface is amber — not falsely red.
   assert.equal(refined.guardrails.humanInLoop, true);
   assert.notEqual(scoreSeverity(refined.sink, refined.guardrails), 'red');
+});
+
+test('repoctx index nested under map.files is read (real repoctx shape)', () => {
+  // Current repoctx writes the catalog under `map.files`, not a top-level
+  // `files`. Regression: the adapter must read it, otherwise acceleration
+  // silently loads 0 files and degrades to native-only.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aiglare-rc-'));
+  const dir = path.join(root, '.dev-context');
+  fs.mkdirSync(dir, { recursive: true });
+  const idxPath = path.join(dir, 'index.json');
+  fs.writeFileSync(
+    idxPath,
+    JSON.stringify({
+      version: 1,
+      map: {
+        files: [
+          {
+            path: 'src/ai/chat.service.ts',
+            kind: 'source',
+            domain: 'ai',
+            domains: ['ai'],
+            httpMethods: [],
+            imports: ['@nestjs/common', 'openai'],
+            exports: [],
+          },
+        ],
+      },
+    }),
+  );
+
+  const rc = loadRepoctxHints(idxPath, root);
+  assert.equal(rc.fileCount, 1);
+  const abs = path.join(root, 'src/ai/chat.service.ts');
+  assert.ok(rc.candidates.has(abs));
+  assert.equal(rc.hints.get(abs).provider.id, 'openai');
 });
