@@ -5,8 +5,8 @@
 Most AI incidents aren't model failures. They're governance failures: the model output flowed straight to a user or an irreversible action with nothing in between. This tool makes those paths visible, and lets you block them in CI.
 
 ```
-npx aiglare            # audit current repo
-npx aiglare ./src --ci # fail the build on a red side-effectful surface
+npx @nugehs/aiglare            # audit current repo
+npx @nugehs/aiglare ./src --ci # fail the build on a red side-effectful surface
 ```
 
 ## What it reports
@@ -35,6 +35,35 @@ Detection is driven by a [provider registry](src/providers.js) covering OpenAI, 
 
 If a [repoctx](https://github.com/nugehs/repoctx) index (`.dev-context/index.json`) is present, the tool uses it automatically to prioritize likely AI files and sharpen sink classification via repoctx's `kind`/`domain` data (e.g. a file repoctx marks as a `controller` route is correctly treated as user-facing even when the native scanner can't see the call graph). Without it, a built-in TypeScript-compiler scanner does the same job at lower fidelity. **Same tool, two fidelity levels** — standalone for everyone, richer for repoctx users.
 
+## MCP server
+
+aiglare ships a built-in [Model Context Protocol](https://modelcontextprotocol.io) server so agents can run audits directly:
+
+```bash
+aiglare mcp        # stdio JSON-RPC server (no SDK dependency)
+```
+
+It exposes three tools:
+
+| Tool | What it does |
+|------|--------------|
+| `ai_surface_audit` | Full audit of a repo (`path`, optional `sinks`, `severity`) → the same structured report as `--json` |
+| `ai_surface_gate` | CI-gate verdict for a repo: `passed` + count of blocking red side-effectful surfaces |
+| `list_providers` | The provider registry the scanner detects |
+
+Register it with an MCP host (Claude Desktop, Cursor, VS Code, …):
+
+```json
+{
+  "mcpServers": {
+    "aiglare": {
+      "command": "npx",
+      "args": ["-y", "@nugehs/aiglare", "mcp"]
+    }
+  }
+}
+```
+
 ## Honest limitations
 
 This is static, advisory analysis — a linter, not a verifier. It produces false positives (a guardrail two call-hops away can be missed) and false negatives (a `confidence` variable that doesn't actually gate anything reads as present). Treat output as *surfaces to review*, not *violations*. The single-file native scanner cannot follow the call graph; the repoctx adapter exists precisely to close that gap.
@@ -47,6 +76,8 @@ aiglare [path] [options]
   --ci              Exit non-zero on a red side-effectful surface
   --severity <lvl>  Show only red, or amber-and-worse
   --sinks <list>    Filter: user-facing,side-effectful,internal
+
+aiglare mcp         Start the MCP server (stdio)
 ```
 
 ## License

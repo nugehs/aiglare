@@ -8,6 +8,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
       - run: npm install
+      - run: npm run version:check
       - run: npm test
       # Dogfood: audit our own fixtures. (Use a real source path in your repo.)
       # - run: node src/cli.js ./src --ci
