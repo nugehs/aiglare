@@ -60,6 +60,19 @@ test('side-effect keywords in a prompt/comment do not create a side-effect sink'
   assert.notEqual(r.severity, 'red');
 });
 
+test('importing a provider without calling the model is not a surface', () => {
+  // DI wiring: imports OpenAI, constructs it in a factory, never invokes it.
+  assert.equal(run('good/ai-wiring.module.ts'), null);
+});
+
+test('side-effect-named fields/identifiers do not create a side-effect sink', () => {
+  // isStripeConnected / bookingsAsVendor / email are read as data, not actions.
+  const r = run('good/reads-payment-fields.service.ts');
+  assert.deepEqual(r.sideEffects, []);
+  assert.notEqual(r.sink, 'side-effectful');
+  assert.notEqual(r.severity, 'red');
+});
+
 test('walkFiles excludes spec/test/stories/d.ts files', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aiglare-walk-'));
   for (const name of [

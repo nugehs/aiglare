@@ -34,10 +34,13 @@ const RX = {
   humanInLoop: /\b(confirm|review|approve|pending|awaitConfirmation|requireApproval|draft|needsReview)\b/i,
 };
 
+// Side-effect rules are call/method-shaped so a field or variable named like a
+// side-effect (`email`, `bookingsAsVendor`, `isStripeConnected`) does not trip a
+// sink — only an actual payment/booking/email operation does.
 const SIDE_EFFECT_HINTS = {
-  payment: /(payment|charge|stripe|paystack|payout|refund|transfer|invoice)/i,
-  booking: /(booking|reserve|reservation|confirmBooking|createBooking)/i,
-  email: /(sendMail|sendEmail|mailer|nodemailer|sendgrid|draftEmail|\bemail\b)/i,
+  payment: /\b(stripe|paystack)\.[a-z_$]|\b(createCharge|chargeCard|processPayment|createPaymentIntent|capturePayment|issueRefund|createPayout)\s*\(|\.(charge|refund|payout|capture)\s*\(/i,
+  booking: /\b(createBooking|confirmBooking|cancelBooking|makeBooking|reserve)\s*\(|\bbooking\.(create|update|delete|upsert|cancel|confirm)\b/i,
+  email: /\b(sendMail|sendEmail|draftEmail|mailer|nodemailer|sendgrid|sgMail)\b|\.send(Mail|Email)\s*\(/i,
   db_write: /(prisma\.\w+\.(create|update|delete|upsert)|repository\.(save|insert|update|delete)|\.(save|insert)\(|knex\(|\.query\(['"`]\s*(INSERT|UPDATE|DELETE))/i,
   fs_write: /(writeFile|writeFileSync|fs\.write)/i,
   shell: /(execSync|child_process|\bspawn\()/i,
@@ -118,6 +121,11 @@ export function analyzeFile(filePath) {
   // weak to flag without a provider, so they only enrich evidence.
   const importedProvider = imports[0]?.provider || fetchHostHits[0]?.provider || null;
   if (!importedProvider) return null;
+  // "imports a provider" is not "uses a model". DI wiring (e.g. a NestJS module
+  // that constructs the client in a factory), config, and re-export files
+  // import the SDK but never call it — they are not AI surfaces. Require an
+  // actual inference call or a fetch to a known inference host.
+  if (inferenceCalls.length === 0 && fetchHostHits.length === 0) return null;
 
   // sink classification — over CODE only, never prose.
   // (1) Mask string/template literals: a prompt that says "payment" or "booking"
