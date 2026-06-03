@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { analyzeFile } from '../src/discovery/native-scanner.js';
+import { analyzeFile, walkFiles } from '../src/discovery/native-scanner.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fx = (p) => path.join(here, 'fixtures', p);
@@ -49,6 +49,33 @@ test('deferred email draft (human-in-loop) is not RED', () => {
 test('fully-guarded identification scores all guardrails present', () => {
   const r = run('good/bird-id.service.ts');
   assert.ok(r.guardrails.confidence && r.guardrails.fallback && r.guardrails.validation && r.guardrails.errorIsolation);
+});
+
+test('side-effect keywords in a prompt/comment do not create a side-effect sink', () => {
+  // payment/charge/refund/booking appear ONLY in a comment and a prompt string;
+  // the file takes no such action, so it must not be classified side-effectful.
+  const r = run('good/prompt-only-payment.service.ts');
+  assert.notEqual(r.sink, 'side-effectful');
+  assert.deepEqual(r.sideEffects, []);
+  assert.notEqual(r.severity, 'red');
+});
+
+test('walkFiles excludes spec/test/stories/d.ts files', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aiglare-walk-'));
+  for (const name of [
+    'service.ts',
+    'service.spec.ts',
+    'service.test.tsx',
+    'button.stories.tsx',
+    'types.d.ts',
+  ]) {
+    fs.writeFileSync(path.join(root, name), 'export const x = 1;');
+  }
+  fs.mkdirSync(path.join(root, '__tests__'));
+  fs.writeFileSync(path.join(root, '__tests__', 'extra.ts'), 'export const y = 1;');
+
+  const found = walkFiles(root).map((p) => path.basename(p));
+  assert.deepEqual(found.sort(), ['service.ts']);
 });
 
 import { loadRepoctxHints, refineWithHints } from '../src/discovery/repoctx-adapter.js';
