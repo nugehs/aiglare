@@ -1,6 +1,12 @@
 # aiglare
 
-**Lint your AI features for governance guardrails.** Point it at any JS/TS repo and it finds every place an LLM/AI output reaches a user or triggers a side-effect (payment, booking, email, database write) — then flags which of those have no confidence handling, no fallback, no output validation, and no human-in-the-loop.
+**Lint your AI features for governance guardrails — where can the model do something you can't undo?**
+
+[![npm](https://img.shields.io/npm/v/@nugehs/aiglare?style=flat-square&color=dc0000)](https://www.npmjs.com/package/@nugehs/aiglare) [![CI](https://img.shields.io/github/actions/workflow/status/nugehs/aiglare/ci.yml?style=flat-square&label=CI)](https://github.com/nugehs/aiglare/actions/workflows/ci.yml) [![license: MIT](https://img.shields.io/badge/license-MIT-dc0000?style=flat-square)](LICENSE) [![node](https://img.shields.io/node/v/@nugehs/aiglare?style=flat-square)](https://www.npmjs.com/package/@nugehs/aiglare)
+
+**Live site:** [nugehs.github.io/aiglare-web](https://nugehs.github.io/aiglare-web/)
+
+Point it at any JS/TS repo and it finds every place an LLM/AI output reaches a user or triggers a side-effect (payment, booking, email, database write) — then flags which of those have no confidence handling, no fallback, no output validation, and no human-in-the-loop.
 
 Most AI incidents aren't model failures. They're governance failures: the model output flowed straight to a user or an irreversible action with nothing in between. This tool makes those paths visible, and lets you block them in CI.
 
@@ -64,6 +70,20 @@ Register it with an MCP host (Claude Desktop, Cursor, VS Code, …):
 }
 ```
 
+## aiglare vs alternatives
+
+| Approach | What it does | Where aiglare differs |
+| --- | --- | --- |
+| guardrails-ai / NeMo Guardrails / runtime validators | Validate or correct each model output at runtime, per call | aiglare is static analysis: it finds the AI surfaces that have **no guardrail at all**, before anything runs — then you add a runtime validator there |
+| semgrep / custom lint rules | General-purpose static rules you write and maintain yourself | aiglare ships the AI-specific knowledge out of the box: a provider registry, sink classification, and five guardrail dimensions — zero rule-writing |
+| Manual AI-feature review | Catches nuance a scanner cannot | aiglare gives reviewers the complete inventory of AI surfaces and a severity triage, so review time goes where the risk is |
+
+These are complementary: aiglare tells you *where* a guardrail is missing; runtime validators are *how* you add one.
+
+## Run a 1-week pilot
+
+Want to evaluate aiglare on a real codebase before adopting the CI gate? [PILOT.md](PILOT.md) is a step-by-step one-week runbook: install, first audit on a backend and a frontend repo, reading the report, tuning `--severity`/`--sinks`, and deciding whether to turn on `--ci`.
+
 ## Honest limitations
 
 This is static, advisory analysis — a linter, not a verifier. It produces false positives (a guardrail two call-hops away can be missed) and false negatives (a `confidence` variable that doesn't actually gate anything reads as present). Treat output as *surfaces to review*, not *violations*. The single-file native scanner cannot follow the call graph; the repoctx adapter exists precisely to close that gap.
@@ -83,3 +103,16 @@ aiglare mcp         Start the MCP server (stdio)
 ## License
 
 MIT
+
+---
+
+## Part of the toolchain
+
+**aiglare** is one of four tools that form a deterministic trust layer for AI-assisted development. Each answers a question people keep handing to an LLM — with static analysis instead.
+
+- [repoctx](https://www.npmjs.com/package/@nugehs/repoctx) — context: what does this change actually touch?
+- [tieline](https://www.npmjs.com/package/@nugehs/tieline) — contracts: did the front end and back end quietly stop agreeing?
+- [bouncer](https://www.npmjs.com/package/@nugehs/bouncer) — compliance: could you defend this to Ofcom?
+- **aiglare** (this tool) — governance: where can the model do something you can't undo?
+
+More at [segunolumbe.com](https://segunolumbe.com). *static analysis, never the model.*

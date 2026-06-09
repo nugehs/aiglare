@@ -9,12 +9,21 @@ match before publish.
 ## [Unreleased]
 
 ### Added
+- Brand alignment: toolchain footer/badges.
 - `aiglare mcp` — stdio MCP server (hand-rolled JSON-RPC, no SDK dependency)
   exposing `ai_surface_audit`, `ai_surface_gate`, and `list_providers`.
 - `scripts/check-version.js` (`npm run version:check`) — SemVer + lockfile
   alignment guard, wired into CI.
 - npm publish readiness: scoped `@nugehs/aiglare`, `files` whitelist,
   `publishConfig.access = public`, `mcpName`.
+- Tag-triggered release workflow (`.github/workflows/release.yml`): pushing a
+  `vX.Y.Z` tag runs the quality gate, publishes to npm with OIDC provenance,
+  creates a GitHub Release with notes extracted from this changelog, and
+  publishes `server.json` to the MCP Registry.
+- README polish: badge row (npm, CI, license, Node), prominent link to the
+  live site (https://nugehs.github.io/aiglare-web/), an "aiglare vs
+  alternatives" comparison, and a "Run a 1-week pilot" section linking
+  `PILOT.md`.
 
 ## [0.1.0]
 
