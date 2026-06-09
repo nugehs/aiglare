@@ -1,6 +1,6 @@
 {
   "name": "@nugehs/aiglare",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "mcpName": "io.github.nugehs/aiglare",
   "description": "aiglare: audit AI/LLM features in any JS/TS codebase for governance guardrails. Finds where model output reaches users or side-effects without confidence handling, fallbacks, validation, or human-in-the-loop.",
   "type": "module",

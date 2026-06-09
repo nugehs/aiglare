@@ -6,7 +6,10 @@ All notable changes to aiglare are documented here. The format follows
 and `package-lock.json` together — `npm run version:check` enforces that they
 match before publish.
 
-## [Unreleased]
+## [0.2.0] - 2026-06-09
+### Changed
+- `PILOT.md` rewritten as a generic runbook (`./my-api`, `./my-app` examples)
+  — removed machine-specific paths and private project references.
 
 ### Added
 - Brand alignment: toolchain footer/badges.
