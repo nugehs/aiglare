@@ -77,8 +77,10 @@ test('walkFiles excludes spec/test/stories/d.ts files', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aiglare-walk-'));
   for (const name of [
     'service.ts',
+    'legacy.cjs',
     'service.spec.ts',
     'service.test.tsx',
+    'worker.test.cjs',
     'button.stories.tsx',
     'types.d.ts',
   ]) {
@@ -88,7 +90,54 @@ test('walkFiles excludes spec/test/stories/d.ts files', () => {
   fs.writeFileSync(path.join(root, '__tests__', 'extra.ts'), 'export const y = 1;');
 
   const found = walkFiles(root).map((p) => path.basename(p));
-  assert.deepEqual(found.sort(), ['service.ts']);
+  assert.deepEqual(found.sort(), ['legacy.cjs', 'service.ts']);
+});
+
+// ---- CommonJS / dynamic import detection ----
+import { findProviderByPackage } from '../src/providers.js';
+
+test('CJS: plain require of a provider is an AI surface', () => {
+  const r = run('cjs/openai-plain-require.js');
+  assert.equal(r.provider, 'openai');
+  assert.ok(r.evidence.some((e) => e.includes('require OpenAI')));
+});
+
+test('CJS: destructured require is detected', () => {
+  const r = run('cjs/anthropic-destructured-require.js');
+  assert.equal(r.provider, 'anthropic');
+});
+
+test('CJS: member-access require is detected', () => {
+  const r = run('cjs/openai-member-require.js');
+  assert.equal(r.provider, 'openai');
+});
+
+test('dynamic import() of a provider is detected', () => {
+  const r = run('cjs/openai-dynamic-import.js');
+  assert.equal(r.provider, 'openai');
+  assert.ok(r.evidence.some((e) => e.includes('import() OpenAI')));
+});
+
+test('CJS: require without an inference call is not a surface', () => {
+  // same DI-wiring rule as ESM: loading the SDK is not using the model.
+  assert.equal(run('cjs/wiring-only-require.js'), null);
+});
+
+test('require of @aws-sdk/client-bedrock-runtime matches bedrock by package, not host substring', () => {
+  // the package name contains the "bedrock-runtime" host fragment; the match
+  // must come from the package registry (evidence says "require"), not from
+  // findProviderByHost accidentally substring-matching the require string.
+  const r = run('cjs/bedrock-require.js');
+  assert.equal(r.provider, 'bedrock');
+  assert.ok(r.evidence.some((e) => e.includes('require AWS Bedrock')));
+});
+
+test('registry: groq-sdk, @google/genai, and official @ai-sdk/* packages resolve', () => {
+  assert.equal(findProviderByPackage('groq-sdk').id, 'groq');
+  assert.equal(findProviderByPackage('@google/genai').id, 'google-genai');
+  for (const pkg of ['google', 'mistral', 'groq', 'xai', 'cohere', 'amazon-bedrock', 'azure', 'deepseek', 'perplexity']) {
+    assert.equal(findProviderByPackage(`@ai-sdk/${pkg}`)?.id, 'vercel-ai', `@ai-sdk/${pkg}`);
+  }
 });
 
 import { loadRepoctxHints, refineWithHints } from '../src/discovery/repoctx-adapter.js';

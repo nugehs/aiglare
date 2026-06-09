@@ -6,6 +6,26 @@ All notable changes to aiglare are documented here. The format follows
 and `package-lock.json` together — `npm run version:check` enforces that they
 match before publish.
 
+## [0.2.1] - 2026-06-09
+### Added
+- CommonJS detection: `require('pkg')` in every position (plain
+  `const X = require(...)`, destructured `const { X } = require(...)`, member
+  access `require('pkg').X`, bare expression) and dynamic `import('pkg')` now
+  resolve through the same provider-package registry as ESM imports. CommonJS
+  codebases (e.g. LibreChat's `api/`, anything-llm's `server/`) were
+  previously invisible to the scanner.
+- `.cjs` files are scanned (`.test.cjs` / `.spec.cjs` remain excluded).
+- Registry: Groq (`groq-sdk` + `api.groq.com`), `@google/genai`, and the
+  official `@ai-sdk/*` provider packages (google, mistral, groq, xai, cohere,
+  amazon-bedrock, azure, deepseek, perplexity) under the Vercel AI SDK entry.
+
+### Fixed
+- `require('@aws-sdk/client-bedrock-runtime')` was only detected by accident:
+  the host matcher substring-matched `bedrock-runtime` inside the require
+  string. require/`import()` specifiers now match by package — intentionally —
+  and are excluded from host matching, so SDK wiring files that never call the
+  model are no longer reported as surfaces.
+
 ## [0.2.0] - 2026-06-09
 ### Changed
 - `PILOT.md` rewritten as a generic runbook (`./my-api`, `./my-app` examples)

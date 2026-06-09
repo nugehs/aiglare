@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { findProviderByPackage, findProviderByHost, INFERENCE_CALL_HINTS } from '../providers.js';
 
-const SOURCE_EXT = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs']);
+const SOURCE_EXT = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
 const IGNORE_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'coverage', '.dev-context', 'out', '__tests__', '__mocks__']);
 
 // Test, story, and type-declaration files are not production AI surfaces: a
@@ -90,7 +90,7 @@ export function analyzeFile(filePath) {
     if (ts.isImportDeclaration(node) && node.moduleSpecifier) {
       const spec = node.moduleSpecifier.getText(sf);
       const prov = findProviderByPackage(spec);
-      if (prov) imports.push({ provider: prov, line: lineOf(node) });
+      if (prov) imports.push({ provider: prov, line: lineOf(node), via: 'import' });
     }
     // Record string/template literal spans so prose inside prompts/messages
     // cannot drive side-effect classification.
@@ -98,15 +98,32 @@ export function analyzeFile(filePath) {
       literalRanges.push([node.getStart(sf), node.getEnd()]);
     }
     if (ts.isCallExpression(node)) {
-      const callText = node.expression.getText(sf);
-      if (INFERENCE_CALL_HINTS.some(h => callText.endsWith(h) || callText.includes(h))) {
-        inferenceCalls.push({ text: callText, line: lineOf(node) });
-      }
-      // raw fetch/axios to a known host
-      for (const arg of node.arguments || []) {
-        if (ts.isStringLiteralLike(arg)) {
-          const prov = findProviderByHost(arg.text);
-          if (prov) fetchHostHits.push({ provider: prov, line: lineOf(node) });
+      // CommonJS `require('pkg')` and dynamic `import('pkg')` are module loads,
+      // not network calls: the specifier goes through the same package registry
+      // as an ESM import. Handling them here (instead of falling through to the
+      // host matcher) also makes package/host disambiguation intentional — e.g.
+      // require('@aws-sdk/client-bedrock-runtime') matches the bedrock provider
+      // by PACKAGE, not because the "bedrock-runtime" host fragment happens to
+      // appear inside the require string.
+      const isRequire = ts.isIdentifier(node.expression) && node.expression.text === 'require';
+      const isDynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
+      if (isRequire || isDynamicImport) {
+        const spec = node.arguments && node.arguments[0];
+        if (spec && ts.isStringLiteralLike(spec)) {
+          const prov = findProviderByPackage(spec.text);
+          if (prov) imports.push({ provider: prov, line: lineOf(node), via: isRequire ? 'require' : 'import()' });
+        }
+      } else {
+        const callText = node.expression.getText(sf);
+        if (INFERENCE_CALL_HINTS.some(h => callText.endsWith(h) || callText.includes(h))) {
+          inferenceCalls.push({ text: callText, line: lineOf(node) });
+        }
+        // raw fetch/axios to a known host
+        for (const arg of node.arguments || []) {
+          if (ts.isStringLiteralLike(arg)) {
+            const prov = findProviderByHost(arg.text);
+            if (prov) fetchHostHits.push({ provider: prov, line: lineOf(node) });
+          }
         }
       }
     }
@@ -170,7 +187,7 @@ export function analyzeFile(filePath) {
     _humanInLoopSignal: humanInLoopSignal,
     severity,
     evidence: [
-      ...imports.map(i => `${path.basename(filePath)}:${i.line} import ${i.provider.label}`),
+      ...imports.map(i => `${path.basename(filePath)}:${i.line} ${i.via} ${i.provider.label}`),
       ...inferenceCalls.slice(0, 3).map(c => `${path.basename(filePath)}:${c.line} ${c.text}()`),
     ],
   };
