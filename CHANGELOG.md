@@ -6,6 +6,25 @@ All notable changes to aiglare are documented here. The format follows
 and `package-lock.json` together — `npm run version:check` enforces that they
 match before publish.
 
+## [0.2.3] - 2026-06-10
+
+### Added
+
+- README: demo GIF showing a `--ci` scan of a failing fixture.
+- `version` lifecycle hook: `npm version` now syncs `server.json` (MCP registry
+  manifest) with `package.json` automatically.
+- `version:check` now fails when `server.json` is out of sync.
+
+### Changed
+
+- README badges use semantic colors (blue for info, green for positive) instead
+  of brand red, which read as failures on npm.
+
+### Note
+
+- 0.2.2 was published to npm but its MCP Registry publish failed because
+  `server.json` still said 0.2.1. 0.2.3 republishes both in sync.
+
 ## [0.2.1] - 2026-06-09
 ### Added
 - CommonJS detection: `require('pkg')` in every position (plain

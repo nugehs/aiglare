@@ -19,6 +19,7 @@
     "start": "node src/cli.js",
     "mcp": "node src/cli.js mcp",
     "version:check": "node scripts/check-version.js",
+    "version": "node scripts/sync-server-version.mjs && git add server.json",
     "test": "node --test test/*.test.js",
     "quality": "npm run version:check && npm test",
     "ci": "npm run quality"

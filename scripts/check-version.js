@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = readJson(path.join(root, "package.json"));
 const packageLock = readJson(path.join(root, "package-lock.json"), { optional: true });
+const serverManifest = readJson(path.join(root, "server.json"), { optional: true });
 
 const semverPattern =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
@@ -21,6 +22,17 @@ if (packageLock) {
   const rootPackage = packageLock.packages?.[""];
   if (rootPackage?.version !== packageJson.version) {
     fail(`package-lock root package version ${rootPackage?.version} does not match package.json version ${packageJson.version}`);
+  }
+}
+
+if (serverManifest) {
+  if (serverManifest.version !== packageJson.version) {
+    fail(`server.json version ${serverManifest.version} does not match package.json version ${packageJson.version}`);
+  }
+  for (const pkg of serverManifest.packages ?? []) {
+    if (pkg.version && pkg.version !== packageJson.version) {
+      fail(`server.json package ${pkg.identifier} version ${pkg.version} does not match package.json version ${packageJson.version}`);
+    }
   }
 }
 
