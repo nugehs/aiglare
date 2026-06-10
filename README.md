@@ -6,6 +6,8 @@
 
 **Live site:** [nugehs.github.io/aiglare-web](https://nugehs.github.io/aiglare-web/)
 
+![aiglare demo](aiglare-demo.gif)
+
 Point it at any JS/TS repo and it finds every place an LLM/AI output reaches a user or triggers a side-effect (payment, booking, email, database write) — then flags which of those have no confidence handling, no fallback, no output validation, and no human-in-the-loop.
 
 Most AI incidents aren't model failures. They're governance failures: the model output flowed straight to a user or an irreversible action with nothing in between. This tool makes those paths visible, and lets you block them in CI.
