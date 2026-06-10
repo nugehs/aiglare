@@ -2,7 +2,7 @@
 
 **Lint your AI features for governance guardrails — where can the model do something you can't undo?**
 
-[![npm](https://img.shields.io/npm/v/@nugehs/aiglare?style=flat-square&color=dc0000)](https://www.npmjs.com/package/@nugehs/aiglare) [![CI](https://img.shields.io/github/actions/workflow/status/nugehs/aiglare/ci.yml?style=flat-square&label=CI)](https://github.com/nugehs/aiglare/actions/workflows/ci.yml) [![license: MIT](https://img.shields.io/badge/license-MIT-dc0000?style=flat-square)](LICENSE) [![node](https://img.shields.io/node/v/@nugehs/aiglare?style=flat-square)](https://www.npmjs.com/package/@nugehs/aiglare)
+[![npm](https://img.shields.io/npm/v/@nugehs/aiglare?style=flat-square)](https://www.npmjs.com/package/@nugehs/aiglare) [![CI](https://img.shields.io/github/actions/workflow/status/nugehs/aiglare/ci.yml?style=flat-square&label=CI)](https://github.com/nugehs/aiglare/actions/workflows/ci.yml) [![license: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE) [![node](https://img.shields.io/node/v/@nugehs/aiglare?style=flat-square)](https://www.npmjs.com/package/@nugehs/aiglare)
 
 **Live site:** [nugehs.github.io/aiglare-web](https://nugehs.github.io/aiglare-web/)
 
