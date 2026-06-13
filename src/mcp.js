@@ -4,6 +4,8 @@ import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { runAudit } from './audit.js';
 import { PROVIDERS } from './providers.js';
+import { parseFrameworks } from './compliance/mapper.js';
+import { FRAMEWORK_IDS } from './compliance/controls.js';
 
 // Hand-rolled JSON-RPC 2.0 server over stdio — no SDK dependency, matching the
 // repoctx MCP server convention. Reads line-delimited JSON from stdin and writes
@@ -29,6 +31,11 @@ const tools = [
           description: 'Optional filter to these sinks.',
         },
         severity: { type: 'string', enum: ['red', 'amber'], description: 'Optional: only surfaces at this level or worse.' },
+        compliance: {
+          type: 'array',
+          items: { type: 'string', enum: FRAMEWORK_IDS },
+          description: 'Optional compliance frameworks to map violations against. Each surface will include a violations[] array.',
+        },
       },
     },
   },
@@ -54,8 +61,10 @@ const tools = [
 
 async function dispatchTool(name, args) {
   switch (name) {
-    case 'ai_surface_audit':
-      return runAudit({ path: args.path ?? '.', sinks: args.sinks, severity: args.severity });
+    case 'ai_surface_audit': {
+      const frameworks = args.compliance ? parseFrameworks(args.compliance.join(',')) : [];
+      return runAudit({ path: args.path ?? '.', sinks: args.sinks, severity: args.severity, compliance: frameworks });
+    }
     case 'ai_surface_gate': {
       const report = runAudit({ path: args.path ?? '.', ci: true });
       return { repo: report.repo, acceleratedBy: report.acceleratedBy, ...report.gate };
