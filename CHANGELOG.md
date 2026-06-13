@@ -6,6 +6,31 @@ All notable changes to aiglare are documented here. The format follows
 and `package-lock.json` together — `npm run version:check` enforces that they
 match before publish.
 
+## [0.3.0] - 2026-06-13
+
+### Added
+
+- **Compliance framework mapping** — `--compliance soc2,eu-ai-act,nist,owasp` (or `all`)
+  maps every AI surface to the specific controls it violates across four frameworks:
+  - SOC 2 Trust Services Criteria (CC7.2, CC7.4, CC9.1, A1.2, PI1.2, PI1.3)
+  - EU AI Act (Art. 9, 13, 14, 17)
+  - NIST AI RMF (GOVERN-1.2, MAP-2.3, MEASURE-2.5, MEASURE-2.6, MANAGE-1.3, MANAGE-2.2)
+  - OWASP LLM Top 10 (LLM02, LLM04, LLM08, LLM09)
+- **`--format` flag** — choose output format:
+  - `terminal` (default) — existing coloured terminal report, now with compliance summary footer
+  - `lint` — ESLint-style output (`file:line  error  message  framework/control-id`), works with or without `--compliance`; without it, uses guardrail-based rule IDs
+  - `markdown` — evidence artifact with per-framework control tables ready to hand to an auditor
+  - `html` — branded HTML report with sticky nav, collapsible framework sections, colour-coded control cards, severity pills, and a guardrail matrix table
+  - `json` — existing machine-readable output, now includes `compliance` and `violations[]` on each surface
+- **Multi-path scanning** — pass multiple paths to produce a single combined report:
+  `aiglare ./api ./web --compliance all --format html`
+- **MCP**: `ai_surface_audit` now accepts an optional `compliance` array; each surface in the response includes a `violations[]` array when set.
+- 19 new tests covering `mapViolations`, `parseFrameworks`, `buildComplianceSummary`, `renderLint`, `renderMarkdown`, and the `runAudit` compliance integration.
+
+### Changed
+
+- `--json` is now an alias for `--format json` (fully backwards-compatible).
+
 ## [0.2.3] - 2026-06-10
 
 ### Added

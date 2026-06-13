@@ -13,8 +13,10 @@ Point it at any JS/TS repo and it finds every place an LLM/AI output reaches a u
 Most AI incidents aren't model failures. They're governance failures: the model output flowed straight to a user or an irreversible action with nothing in between. This tool makes those paths visible, and lets you block them in CI.
 
 ```
-npx @nugehs/aiglare            # audit current repo
-npx @nugehs/aiglare ./src --ci # fail the build on a red side-effectful surface
+npx @nugehs/aiglare                                        # audit current repo
+npx @nugehs/aiglare ./src --ci                             # fail the build on a red side-effectful surface
+npx @nugehs/aiglare --compliance all --format html         # HTML evidence report for auditors
+npx @nugehs/aiglare --compliance soc2,eu-ai-act --format lint --ci  # compliance linter in CI
 ```
 
 ## What it reports
@@ -34,6 +36,41 @@ Each AI surface is classified by **sink** — where the output goes:
 | 🟢 green | guardrails present |
 
 The CI gate (`--ci`) fails only on **red + side-effectful** surfaces — the "AI auto-triggers an irreversible action with no confirmation" case — so it's safe to adopt without drowning a team in warnings.
+
+## Compliance reports
+
+Pass `--compliance` to map every finding to specific regulatory controls, then pick your output format:
+
+```bash
+# HTML evidence report — branded, collapsible per-framework sections, guardrail matrix
+aiglare --compliance all --format html > report.html
+
+# ESLint-style linter — pipe into CI, editors, or reviewers
+aiglare --compliance soc2,eu-ai-act --format lint
+
+# Markdown evidence doc — ready to hand to an auditor
+aiglare --compliance all --format markdown > AUDIT.md
+
+# Guardrail linter (no framework) — rule IDs like guardrail/human-in-loop
+aiglare --format lint
+```
+
+**Supported frameworks:**
+
+| Framework | Controls mapped |
+|-----------|----------------|
+| `soc2` | SOC 2 Trust Services Criteria — CC7.2, CC7.4, CC9.1, A1.2, PI1.2, PI1.3 |
+| `eu-ai-act` | EU AI Act — Art. 9, 13, 14, 17 |
+| `nist` | NIST AI RMF — GOVERN-1.2, MAP-2.3, MEASURE-2.5/2.6, MANAGE-1.3/2.2 |
+| `owasp` | OWASP LLM Top 10 — LLM02, LLM04, LLM08, LLM09 |
+
+Use `all` to include every framework. Each surface in `--json` output gains a `violations[]` array with the framework, control ID, description, and error/warning level.
+
+**Multi-repo:** pass multiple paths for a single combined report:
+
+```bash
+aiglare ./api ./web --compliance all --format html > report.html
+```
 
 ## Provider-agnostic
 
@@ -93,14 +130,19 @@ This is static, advisory analysis — a linter, not a verifier. It produces fals
 ## Options
 
 ```
-aiglare [path] [options]
-  --json            JSON output for tooling
-  --ci              Exit non-zero on a red side-effectful surface
-  --severity <lvl>  Show only red, or amber-and-worse
-  --sinks <list>    Filter: user-facing,side-effectful,internal
+aiglare [path...] [options]
+  --compliance <fw>   Map findings to compliance controls.
+                      Comma-separated: soc2, eu-ai-act, nist, owasp, or "all"
+  --format <fmt>      Output format: terminal (default), json, lint, markdown, html
+  --json              JSON output (alias for --format json)
+  --ci                Exit non-zero on a red side-effectful surface
+  --severity <lvl>    Show only red, or amber-and-worse
+  --sinks <list>      Filter: user-facing,side-effectful,internal
 
-aiglare mcp         Start the MCP server (stdio)
+aiglare mcp           Start the MCP server (stdio)
 ```
+
+The MCP tool `ai_surface_audit` accepts an optional `compliance` array — each surface in the response includes a `violations[]` array when set.
 
 ## License
 
